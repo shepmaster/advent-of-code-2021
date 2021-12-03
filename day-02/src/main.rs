@@ -4,6 +4,7 @@ const INPUT: &str = include_str!("../input");
 
 fn main() {
     println!("part 1: {}", distance_product(INPUT));
+    println!("part 2: {}", aimed_distance_product(INPUT));
 }
 
 fn distance_product(s: &str) -> u64 {
@@ -16,6 +17,26 @@ fn distance_product(s: &str) -> u64 {
             Forward(v) => x += v,
             Down(v) => y += v,
             Up(v) => y -= v,
+        }
+    }
+
+    x * y
+}
+
+fn aimed_distance_product(s: &str) -> u64 {
+    let mut aim = 0;
+    let mut x = 0;
+    let mut y = 0;
+
+    for d in s.lines().flat_map(Direction::from_str) {
+        use Direction::*;
+        match d {
+            Forward(v) => {
+                x += v;
+                y += v * aim;
+            }
+            Down(v) => aim += v,
+            Up(v) => aim -= v,
         }
     }
 
@@ -63,5 +84,10 @@ forward 2
     #[test]
     fn test_part_1() {
         assert_eq!(150, distance_product(TEST_INPUT));
+    }
+
+    #[test]
+    fn test_part_2() {
+        assert_eq!(900, aimed_distance_product(TEST_INPUT));
     }
 }
