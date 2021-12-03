@@ -1,0 +1,9 @@
+[package]
+name = "advent-of-code-2021"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = ["day-*"]
+
+[dependencies]
