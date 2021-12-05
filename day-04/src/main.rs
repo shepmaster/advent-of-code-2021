@@ -1,3 +1,5 @@
+#![feature(vec_retain_mut)]
+
 use itertools::Itertools;
 use std::collections::BTreeMap;
 
@@ -6,17 +8,11 @@ const INPUT: &str = include_str!("../input");
 fn main() {
     // Wrong: 0 -- there are more than 3 boards
     println!("part1: {}", first_winning_score(INPUT));
+    println!("part2: {}", last_winning_score(INPUT));
 }
 
 fn first_winning_score(s: &str) -> u64 {
-    let mut lines = s.lines().peekable();
-    let calls = lines.next().expect("Missing calls");
-    let calls = calls.split(',').flat_map(str::parse);
-
-    let mut boards = vec![];
-    while lines.peek().is_some() {
-        boards.push(parse_board(&mut lines));
-    }
+    let (calls, mut boards) = parse_input(s);
 
     for call in calls {
         for board in &mut boards {
@@ -30,6 +26,47 @@ fn first_winning_score(s: &str) -> u64 {
     }
 
     panic!("no winners");
+}
+
+fn last_winning_score(s: &str) -> u64 {
+    let (mut calls, mut boards) = parse_input(s);
+
+    for call in &mut calls {
+        boards.retain_mut(|board| {
+            board_mark_call(board, call);
+            !board_is_win(board)
+        });
+
+        if boards.len() == 1 {
+            break;
+        }
+    }
+
+    let mut last = boards.pop().expect("Must have one board left");
+
+    for call in calls {
+        board_mark_call(&mut last, call);
+
+        if board_is_win(&last) {
+            print_board(&last);
+            return board_sum_of_unmarked(&last) * u64::from(call);
+        }
+    }
+
+    panic!("no winners");
+}
+
+fn parse_input(s: &str) -> (impl Iterator<Item = u8> + '_, Vec<Board>) {
+    let mut lines = s.lines().peekable();
+    let calls = lines.next().expect("Missing calls");
+    let calls = calls.split(',').flat_map(str::parse);
+
+    let mut boards = vec![];
+    while lines.peek().is_some() {
+        boards.push(parse_board(&mut lines));
+    }
+
+    (calls, boards)
 }
 
 type Board = BTreeMap<(usize, usize), (u8, bool)>;
@@ -96,5 +133,10 @@ mod test {
     #[test]
     fn test_part_1() {
         assert_eq!(4512, first_winning_score(TEST_INPUT));
+    }
+
+    #[test]
+    fn test_part_2() {
+        assert_eq!(1924, last_winning_score(TEST_INPUT));
     }
 }
