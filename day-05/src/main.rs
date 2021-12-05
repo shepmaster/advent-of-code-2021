@@ -1,16 +1,17 @@
 use itertools::Itertools;
-use std::{collections::BTreeMap, iter};
+use std::{collections::BTreeMap, iter, ops::RangeInclusive};
 
 const INPUT: &str = include_str!("../input");
 
 fn main() {
-    println!("part1: {}", number_overlapping_points(INPUT));
+    println!("part1: {}", number_overlapping_points(INPUT, false));
+    println!("part2: {}", number_overlapping_points(INPUT, true));
 }
 
 type Coord = (u64, u64);
 type Grid = BTreeMap<Coord, usize>;
 
-fn number_overlapping_points(s: &str) -> usize {
+fn number_overlapping_points(s: &str, include_diagonals: bool) -> usize {
     let lines = s.lines().flat_map(|l| {
         let (l, r) = l.split_once("->")?;
 
@@ -30,6 +31,7 @@ fn number_overlapping_points(s: &str) -> usize {
         let mut vertical;
         let mut horizontal;
         let mut diagonal;
+        let mut diagonal_null;
 
         let coords: &mut dyn Iterator<Item = Coord> = if x1 == x2 {
             let xs = iter::repeat(x1);
@@ -43,11 +45,16 @@ fn number_overlapping_points(s: &str) -> usize {
             horizontal = xs.zip(ys);
 
             &mut horizontal
-        } else {
-            // not yet undefined
-            diagonal = iter::empty();
+        } else if include_diagonals {
+            let xs = increasing_range_inclusive(x1, x2);
+            let ys = increasing_range_inclusive(y1, y2);
+            diagonal = xs.zip(ys);
 
             &mut diagonal
+        } else {
+            diagonal_null = iter::empty();
+
+            &mut diagonal_null
         };
 
         for coord in coords {
@@ -59,14 +66,16 @@ fn number_overlapping_points(s: &str) -> usize {
     grid.values().filter(|&&c| c >= 2).count()
 }
 
-fn increasing_range_inclusive<T>(y1: T, y2: T) -> std::ops::RangeInclusive<T>
+fn increasing_range_inclusive<'a, T>(a: T, b: T) -> impl Iterator<Item = T> + 'a
 where
+    T: 'a,
     T: PartialOrd,
+    RangeInclusive<T>: DoubleEndedIterator<Item = T>,
 {
-    if y1 < y2 {
-        y1..=y2
+    if a < b {
+        Box::new(a..=b) as Box<dyn Iterator<Item = T>>
     } else {
-        y2..=y1
+        Box::new((b..=a).rev())
     }
 }
 
@@ -94,6 +103,11 @@ mod test {
 
     #[test]
     fn test_part_1() {
-        assert_eq!(5, number_overlapping_points(TEST_INPUT));
+        assert_eq!(5, number_overlapping_points(TEST_INPUT, false));
+    }
+
+    #[test]
+    fn test_part_2() {
+        assert_eq!(12, number_overlapping_points(TEST_INPUT, true));
     }
 }
