@@ -3,6 +3,7 @@ const INPUT: &str = include_str!("../input");
 fn main() {
     // Wrong: 385449 (too low) -- last number wasn't being parsed
     println!("part1: {}", simulate_lanternfish(INPUT, 80));
+    println!("part2: {}", simulate_lanternfish(INPUT, 256));
 }
 
 fn simulate_lanternfish(s: &str, n_days: usize) -> usize {
@@ -36,5 +37,10 @@ mod test {
     #[test]
     fn test_part_1_80_days() {
         assert_eq!(5934, simulate_lanternfish(TEST_INPUT, 80));
+    }
+
+    #[test]
+    fn test_part_2_256_days() {
+        assert_eq!(26984457539, simulate_lanternfish(TEST_INPUT, 256));
     }
 }
