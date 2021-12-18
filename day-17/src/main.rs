@@ -3,15 +3,20 @@ use std::ops::RangeInclusive;
 const INPUT: &str = include_str!("../input");
 
 fn main() {
-    // WRONG: 1830 (too low) --
-    // 7503
+    // WRONG: 1830 (too low) -- wasn't allowing appropriate maximum initial y velocity
     println!("part1: {}", maximum_height(INPUT));
+    println!("part2: {}", valid_velocities(INPUT));
 }
 
 fn maximum_height(s: &str) -> i32 {
     let target = parse_target(s);
     let paths = valid_paths(target);
     paths.into_iter().flatten().map(|(_, y)| y).max().unwrap()
+}
+
+fn valid_velocities(s: &str) -> usize {
+    let target = parse_target(s);
+    valid_paths(target).len()
 }
 
 type Coord = (i32, i32);
@@ -35,14 +40,11 @@ fn parse_range(x: &str) -> RangeInclusive<i32> {
 
 fn valid_paths(target: Target) -> Vec<Path> {
     let mut paths = vec![];
+    // Maximum values are bounded by if a single step would put us past the target.
     for x in 0..=*target.0.end() {
-        for y in 0.. {
+        // Y velocity when we return to y == 0 is the same absolute value
+        for y in *target.1.start()..-target.1.start() {
             let velocity = (x, y);
-
-            // Y velocity when we return to y == 0 will cause us to skip over the target area
-            if -(velocity.1 + 1) < *target.1.start() {
-                break;
-            }
 
             paths.extend(launch(velocity, target.clone()));
         }
@@ -96,5 +98,10 @@ mod test {
     #[test]
     fn test_part1() {
         assert_eq!(45, maximum_height(TEST_INPUT));
+    }
+
+    #[test]
+    fn test_part2() {
+        assert_eq!(112, valid_velocities(TEST_INPUT));
     }
 }
