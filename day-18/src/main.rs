@@ -1,9 +1,11 @@
+use itertools::Itertools;
 use std::{iter::Sum, ops::Add};
 
 const INPUT: &str = include_str!("../input");
 
 fn main() {
     println!("part1: {}", magnitude_of_sum(INPUT));
+    println!("part2: {}", maximum_magnitude_of_two_sum(INPUT));
 }
 
 fn magnitude_of_sum(s: &str) -> u32 {
@@ -13,7 +15,21 @@ fn magnitude_of_sum(s: &str) -> u32 {
         .magnitude()
 }
 
-#[derive(Debug, PartialEq, Eq)]
+fn maximum_magnitude_of_two_sum(s: &str) -> u32 {
+    let numbers = s
+        .lines()
+        .map(|l| Snailfish::parse(l.trim()))
+        .collect::<Vec<_>>();
+
+    numbers
+        .iter()
+        .permutations(2)
+        .map(|v| (v[0].clone() + v[1].clone()).magnitude())
+        .max()
+        .expect("No numbers to sum")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Snailfish {
     Literal(u32),
     Nested(Box<(Snailfish, Snailfish)>),
@@ -200,6 +216,11 @@ mod test {
             Snailfish::parse("[[[[6,6],[7,6]],[[7,7],[7,0]]],[[[7,7],[7,7]],[[7,8],[9,9]]]]")
         );
         assert_eq!(4140, sum.magnitude());
+    }
+
+    #[test]
+    fn test_part2() {
+        assert_eq!(3993, maximum_magnitude_of_two_sum(TEST_INPUT));
     }
 
     #[test]
