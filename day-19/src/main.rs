@@ -1,5 +1,7 @@
 #![feature(array_windows)]
+#![feature(int_abs_diff)]
 
+use itertools::Itertools;
 use petgraph::{algo::astar, graphmap::DiGraphMap};
 use std::collections::BTreeSet;
 
@@ -7,26 +9,45 @@ const INPUT: &str = include_str!("../input");
 
 fn main() {
     println!("part1: {}", n_unique_beacons(INPUT));
+    println!("part2: {}", max_manhattan_distance_of_sensors(INPUT));
 }
 
 fn n_unique_beacons(s: &str) -> usize {
     let sensors = parse_sensors(s);
     let potential_connections = potential_connections(&sensors);
     let connections = valid_connections(&potential_connections, &sensors);
-    let merged = merge(&sensors, &connections);
+    let graph = connection_graph(&connections);
+    let merged = merge(&sensors, &graph);
 
     merged.len()
+}
+
+fn max_manhattan_distance_of_sensors(s: &str) -> u32 {
+    let sensors = parse_sensors(s);
+    let potential_connections = potential_connections(&sensors);
+    let connections = valid_connections(&potential_connections, &sensors);
+    let graph = connection_graph(&connections);
+    let merged = merge_sensors(&graph);
+
+    merged
+        .iter()
+        .permutations(2)
+        .map(|p| manhattan_distance(*p[0], *p[1]))
+        .max()
+        .expect("No Manhattan distance")
 }
 
 type Sensors = Vec<Beacons>;
 type SensorIdx = usize;
 type Beacons = Vec<Coord>;
 type Coord = [i32; 3];
+type Translation = [i32; 3];
 type Rotation = fn(Coord) -> Coord;
 
 type PotentialConnections = BTreeSet<(SensorIdx, SensorIdx)>;
 type Connection = (SensorIdx, SensorIdx, Rotation, Coord, Coord);
 type Connections = Vec<Connection>;
+type ConnectionGraph = DiGraphMap<usize, (Rotation, Translation)>;
 
 // https://www.reddit.com/r/adventofcode/comments/rk0fyk/
 const ROTATIONS: &[Rotation] = &[
@@ -147,15 +168,18 @@ fn valid_connections(
 }
 
 // Build a graph of rotation/translation transformations between the
-// sensors and transform everything to sensor #0.
-fn merge(sensors: &Sensors, connections: &Connections) -> BTreeSet<Coord> {
+// sensors.
+fn connection_graph(connections: &Connections) -> ConnectionGraph {
     let mut graph = DiGraphMap::new();
-
     for &(from, to, rotation, a, b) in connections {
         let t = sub(a, b);
         graph.add_edge(to, from, (rotation, t));
     }
+    graph
+}
 
+// Transform all beacons to sensor #0.
+fn merge(sensors: &Sensors, graph: &ConnectionGraph) -> BTreeSet<Coord> {
     let mut all_beacons = BTreeSet::from_iter(sensors[0].iter().copied());
     for (idx, beacons) in sensors.iter().enumerate().skip(1) {
         let mut beacons = beacons.clone();
@@ -171,6 +195,26 @@ fn merge(sensors: &Sensors, connections: &Connections) -> BTreeSet<Coord> {
         all_beacons.extend(beacons);
     }
     all_beacons
+}
+
+// Transform all sensors to sensor #0.
+fn merge_sensors(graph: &ConnectionGraph) -> BTreeSet<Coord> {
+    let mut all_sensors = BTreeSet::new();
+
+    for sensor in graph.nodes() {
+        let (_, path) = astar(&graph, sensor, |n| n == 0, |_| 1, |_| 1).expect("No path");
+        let mut sensor = [0, 0, 0];
+
+        for &[a, b] in path.array_windows() {
+            let &(rotation, translation) = graph.edge_weight(a, b).expect("edge missing");
+
+            sensor = rotation(sensor);
+            sensor = translate(sensor, translation)
+        }
+
+        all_sensors.insert(sensor);
+    }
+    all_sensors
 }
 
 fn all_distances(mut beacons: &[Coord]) -> BTreeSet<i32> {
@@ -190,10 +234,12 @@ fn rotate_all(beacons: &Beacons, rotation: Rotation) -> impl Iterator<Item = Coo
     beacons.iter().copied().map(rotation)
 }
 
-fn translate_all(coords: &[Coord], [x0, y0, z0]: Coord) -> impl Iterator<Item = Coord> + '_ {
-    coords
-        .iter()
-        .map(move |&[x, y, z]| [x + x0, y + y0, z + z0])
+fn translate_all(coords: &[Coord], by: Coord) -> impl Iterator<Item = Coord> + '_ {
+    coords.iter().map(move |&c| translate(c, by))
+}
+
+fn translate([x, y, z]: Coord, [x0, y0, z0]: Coord) -> Coord {
+    [x + x0, y + y0, z + z0]
 }
 
 fn sub([ax, ay, az]: Coord, [bx, by, bz]: Coord) -> Coord {
@@ -202,6 +248,10 @@ fn sub([ax, ay, az]: Coord, [bx, by, bz]: Coord) -> Coord {
 
 fn negate([x, y, z]: Coord) -> Coord {
     [-x, -y, -z]
+}
+
+fn manhattan_distance([ax, ay, az]: Coord, [bx, by, bz]: Coord) -> u32 {
+    ax.abs_diff(bx) + ay.abs_diff(by) + az.abs_diff(bz)
 }
 
 #[cfg(test)]
@@ -213,5 +263,10 @@ mod test {
     #[test]
     fn test_part1() {
         assert_eq!(79, n_unique_beacons(TEST_INPUT));
+    }
+
+    #[test]
+    fn test_part2() {
+        assert_eq!(3621, max_manhattan_distance_of_sensors(TEST_INPUT));
     }
 }
