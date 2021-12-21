@@ -9,12 +9,13 @@ const INPUT: &str = include_str!("../input");
 fn main() {
     // WRONG: 5096 (too high); algorithm[0] can be true, result in lighting up everything
     // WRONG: 5077 (too low); needed to treat 0b1_1111_1111 and 0b0_0000_0000 as special background tiles
-    println!("part1: {}", lit_pixels_after_two_enhancements(INPUT));
+    println!("part1: {}", lit_pixels_after_enhancements(INPUT, 2));
+    println!("part2: {}", lit_pixels_after_enhancements(INPUT, 50));
 }
 
-fn lit_pixels_after_two_enhancements(s: &str) -> usize {
+fn lit_pixels_after_enhancements(s: &str, n_steps: usize) -> usize {
     let (algorithm, image) = parse_input(s);
-    let image = apply_algorithm(&algorithm, image, 2);
+    let image = apply_algorithm(&algorithm, image, n_steps);
     image.values().filter(|&&x| x).count()
 }
 
@@ -153,6 +154,11 @@ mod test {
 
     #[test]
     fn test_part1() {
-        assert_eq!(35, lit_pixels_after_two_enhancements(TEST_INPUT));
+        assert_eq!(35, lit_pixels_after_enhancements(TEST_INPUT, 2));
+    }
+
+    #[test]
+    fn test_part2() {
+        assert_eq!(3351, lit_pixels_after_enhancements(TEST_INPUT, 50));
     }
 }
