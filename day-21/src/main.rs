@@ -1,14 +1,22 @@
-use std::{iter, ops};
+#![feature(map_first_last)]
+
+use std::{collections::BTreeMap, iter, ops};
 
 const INPUT: &str = include_str!("../input");
 
 fn main() {
     println!("part1: {}", play_game(INPUT));
+    println!("part2: {}", play_dirac_game(INPUT));
 }
 
 fn play_game(s: &str) -> u32 {
     let players = parse_players(s);
     run_game_loser_score_rolls_product(players)
+}
+
+fn play_dirac_game(s: &str) -> u64 {
+    let players = parse_players(s);
+    run_game_dirac(players)
 }
 
 type Players = [(u32, Position); 2];
@@ -45,6 +53,38 @@ fn run_game_loser_score_rolls_product(mut players: Players) -> u32 {
     n_rolls * players[losing_player].0
 }
 
+fn run_game_dirac(players: Players) -> u64 {
+    let mut universes = BTreeMap::from_iter([((0, players), 1)]);
+    let mut wins = [0; 2];
+
+    // (count, final roll)
+    let dirac_die = [(1, 3), (3, 4), (6, 5), (7, 6), (6, 7), (3, 8), (1, 9)];
+
+    while let Some(((player_idx, players), count)) = universes.pop_first() {
+        for &(die_count, die_value) in &dirac_die {
+            let mut players = players.clone();
+            let (score, position) = &mut players[player_idx];
+
+            *position += die_value;
+            *score += position.value();
+
+            let new_count = count * die_count;
+
+            if *score >= 21 {
+                wins[player_idx] += new_count;
+            } else {
+                let next_player_idx = 1 - player_idx;
+                // TODO: probably don't need entry... never repeat this state?
+                *universes.entry((next_player_idx, players)).or_default() += new_count;
+                // TODO: can we instead cache a mapping of position to end positions and score deltas?
+            }
+        }
+    }
+
+    wins.sort_unstable();
+    wins[1]
+}
+
 fn deterministic_die() -> impl Iterator<Item = u32> {
     let mut counter = WrappedCounter::<1, 100>::new(1);
     iter::from_fn(move || {
@@ -56,7 +96,7 @@ fn deterministic_die() -> impl Iterator<Item = u32> {
 
 type Position = WrappedCounter<1, 10>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct WrappedCounter<const MIN: u32, const MAX: u32>(u32);
 
 impl<const MIN: u32, const MAX: u32> Default for WrappedCounter<MIN, MAX> {
@@ -109,6 +149,11 @@ mod test {
     #[test]
     fn test_part1() {
         assert_eq!(739785, play_game(TEST_INPUT));
+    }
+
+    #[test]
+    fn test_part2() {
+        assert_eq!(444356092776315, play_dirac_game(TEST_INPUT));
     }
 
     #[test]
