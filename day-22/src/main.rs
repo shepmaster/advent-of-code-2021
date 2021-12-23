@@ -9,14 +9,21 @@ const INPUT: &str = include_str!("../input");
 
 fn main() {
     println!("part1: {}", n_cubes_on_restricted(INPUT));
+    println!("part2: {}", n_cubes_on(INPUT));
 }
 
 fn n_cubes_on_restricted(s: &str) -> usize {
-    let mut forest = Forest::default();
-    for mut area in parse_areas(s) {
-        area.clamp_to(-50..51);
-        forest.insert(area);
-    }
+    let forest: Forest = parse_areas(s)
+        .map(|mut a| {
+            a.clamp_to(-50..51);
+            a
+        })
+        .collect();
+    forest.cubes_on()
+}
+
+fn n_cubes_on(s: &str) -> usize {
+    let forest: Forest = parse_areas(s).collect();
     forest.cubes_on()
 }
 
@@ -64,21 +71,37 @@ impl Area {
 struct Forest(Vec<Space>);
 
 impl Forest {
-    fn insert(&mut self, a: Area) {
-        let spaces = mem::take(&mut self.0);
-
-        self.0 = spaces
-            .into_iter()
-            .flat_map(|s| s.subtract(&a.space))
-            .collect();
-
-        if a.mode {
-            self.0.push(a.space)
-        }
-    }
-
     fn cubes_on(&self) -> usize {
         self.0.iter().map(Space::volume).sum()
+    }
+}
+
+impl FromIterator<Area> for Forest {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = Area>,
+    {
+        let mut forest = Vec::new();
+        let mut scratch = Vec::new();
+
+        for area in iter.into_iter() {
+            // Seems suspicious
+            if area.space.is_empty() {
+                continue;
+            }
+
+            let next = forest.iter().flat_map(|s: &Space| s.subtract(&area.space));
+            Space::merge_into(next, &mut scratch);
+
+            mem::swap(&mut scratch, &mut forest);
+            scratch.clear();
+
+            if area.mode {
+                forest.push(area.space)
+            }
+        }
+
+        Self(forest)
     }
 }
 
@@ -118,19 +141,28 @@ impl Space {
         [x.start, x.end, y.start, y.end, z.start, z.end]
     }
 
-    fn subtract(&self, other: &Self) -> Vec<Self> {
+    fn subtract(&self, other: &Self) -> BTreeSet<Self> {
         let mut result = BTreeSet::from_iter([self.clone()]);
 
-        for corner in other.corners() {
-            result = result
-                .into_iter()
-                .flat_map(|s| s.split_at(corner))
-                .filter(|s| !s.is_empty())
-                .filter(|s| !s.completely_contains(other))
-                .collect();
+        if !self.intersects(other) {
+            return result;
         }
 
-        result.into_iter().collect()
+        let mut scratch = BTreeSet::new();
+
+        for corner in other.corners() {
+            let next = result
+                .iter()
+                .flat_map(|s| s.split_at(corner))
+                .filter(|s| !s.is_empty())
+                .filter(|s| !s.completely_contains(other));
+            scratch.extend(next);
+
+            mem::swap(&mut result, &mut scratch);
+            scratch.clear();
+        }
+
+        result
     }
 
     fn split_at(&self, coord: Coord) -> [Self; 8] {
@@ -165,11 +197,11 @@ impl Space {
     fn completely_contains(&self, other: &Self) -> bool {
         let Self { x, y, z } = self;
 
-        let x = x.start >= other.x.start && x.end <= other.x.end;
-        let y = y.start >= other.y.start && y.end <= other.y.end;
-        let z = z.start >= other.z.start && z.end <= other.z.end;
+        let x = || x.start >= other.x.start && x.end <= other.x.end;
+        let y = || y.start >= other.y.start && y.end <= other.y.end;
+        let z = || z.start >= other.z.start && z.end <= other.z.end;
 
-        x && y && z
+        x() && y() && z()
     }
 
     fn is_empty(&self) -> bool {
@@ -213,6 +245,51 @@ impl Space {
         z.start = max(z.start, arg.start);
         z.end = min(z.end, arg.end);
     }
+
+    fn intersects(&self, other: &Self) -> bool {
+        self.intersects_one_direction(other) || other.intersects_one_direction(self)
+    }
+
+    fn intersects_one_direction(&self, other: &Self) -> bool {
+        let Self { x, y, z } = self;
+
+        let x = || x.start >= other.x.start || x.end <= other.x.end;
+        let y = || y.start >= other.y.start || y.end <= other.y.end;
+        let z = || z.start >= other.z.start || z.end <= other.z.end;
+
+        x() || y() || z()
+    }
+
+    #[cfg(test)]
+    fn merge(spaces: impl IntoIterator<Item = Self>) -> Vec<Self> {
+        let mut result = vec![];
+        Self::merge_into(spaces, &mut result);
+        result
+    }
+
+    fn merge_into(spaces: impl IntoIterator<Item = Self>, result: &mut Vec<Self>) {
+        let mut previous: Option<Self> = None;
+
+        for curr in spaces {
+            if let Some(prev) = previous.take() {
+                if prev.y == curr.y && prev.z == curr.z && prev.x.end == curr.x.start {
+                    previous = Some(Self::new(prev.x.start..curr.x.end, prev.y, prev.z));
+                    continue;
+                } else if prev.x == curr.x && prev.z == curr.z && prev.y.end == curr.y.start {
+                    previous = Some(Self::new(prev.x, prev.y.start..curr.y.end, prev.z));
+                    continue;
+                } else if prev.x == curr.x && prev.y == curr.y && prev.z.end == curr.z.start {
+                    previous = Some(Self::new(prev.x, prev.y, prev.z.start..curr.z.end));
+                    continue;
+                }
+
+                result.push(prev);
+            }
+            previous = Some(curr.clone());
+        }
+
+        result.extend(previous);
+    }
 }
 
 #[cfg(test)]
@@ -221,6 +298,7 @@ mod test {
 
     const TEST_INPUT_0: &str = include_str!("../test-input-0");
     const TEST_INPUT_1: &str = include_str!("../test-input-1");
+    const TEST_INPUT_2: &str = include_str!("../test-input-2");
 
     #[test]
     fn test_part1_0() {
@@ -230,6 +308,11 @@ mod test {
     #[test]
     fn test_part1_1() {
         assert_eq!(590784, n_cubes_on_restricted(TEST_INPUT_1));
+    }
+
+    #[test]
+    fn test_part2() {
+        assert_eq!(2758514936282235, n_cubes_on(TEST_INPUT_2));
     }
 
     #[test]
@@ -299,5 +382,42 @@ mod test {
         let results = a.subtract(&b);
         assert_eq!(26, results.len());
         assert_eq!(26usize, results.iter().map(Space::volume).sum());
+    }
+
+    #[test]
+    fn space_merge() {
+        // Merge on X
+        let merged = Space::merge([
+            Space::new(-22..-16, -9..-8, -33..2),
+            Space::new(-16..0, -9..-8, -33..2),
+        ]);
+        assert_eq!(vec![Space::new(-22..0, -9..-8, -33..2)], merged);
+
+        // Merge on Y
+        let merged = Space::merge([
+            Space::new(-9..-8, -22..-16, -33..2),
+            Space::new(-9..-8, -16..0, -33..2),
+        ]);
+        assert_eq!(vec![Space::new(-9..-8, -22..0, -33..2)], merged);
+
+        // Merge on Z
+        let merged = Space::merge([
+            Space::new(-9..-8, -33..2, -22..-16),
+            Space::new(-9..-8, -33..2, -16..0),
+        ]);
+        assert_eq!(vec![Space::new(-9..-8, -33..2, -22..0)], merged);
+
+        // No merge
+        let merged = Space::merge([
+            Space::new(-1..0, -1..0, -1..0),
+            Space::new(1..2, 1..2, 1..2),
+        ]);
+        assert_eq!(
+            vec![
+                Space::new(-1..0, -1..0, -1..0),
+                Space::new(1..2, 1..2, 1..2),
+            ],
+            merged
+        );
     }
 }
