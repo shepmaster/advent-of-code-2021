@@ -1,4 +1,6 @@
 #![feature(map_first_last)]
+#![feature(array_chunks)]
+#![feature(slice_as_chunks)]
 
 use petgraph::graph::{NodeIndex, UnGraph};
 use std::{
@@ -7,42 +9,106 @@ use std::{
     sync::Arc,
 };
 
-const INPUT: &str = include_str!("../input");
+const INPUT_0: &str = include_str!("../input-0");
+const INPUT_1: &str = include_str!("../input-1");
 
 fn main() {
-    println!("part1: {}", minimum_energy_to_organize(INPUT));
+    println!("part1: {}", minimum_energy_to_organize::<Folded>(INPUT_0));
+    println!("part2: {}", minimum_energy_to_organize::<Unfolded>(INPUT_1));
 }
 
-fn minimum_energy_to_organize(s: &str) -> usize {
-    let g = parse_graph(s);
-    let state = find_minimum_cost(g).expect("No minimum cost found");
+fn minimum_energy_to_organize<K>(s: &str) -> usize
+where
+    K: Kind,
+{
+    let g = K::parse_graph(s);
+    let state = find_minimum_cost::<K>(g).expect("No minimum cost found");
     state.cost
 }
 
-fn parse_graph(s: &str) -> MyGraph {
-    use {Amphipod::*, Node::*};
+trait Kind {
+    const N_AMPHIPODS: usize;
+    type EncodedGraph: PartialOrd + Ord + PartialEq + Eq;
 
-    let mut starts = vec![];
+    fn parse_graph(s: &str) -> MyGraph;
 
-    for line in s.lines() {
-        for c in line.trim().chars() {
-            let a = match c {
-                'A' => Amber,
-                'B' => Bronze,
-                'C' => Copper,
-                'D' => Desert,
-                _ => continue,
-            };
-            starts.push(a);
-        }
+    fn encode_graph(g: &MyGraph) -> Self::EncodedGraph;
+
+    fn dump_graph(g: &MyGraph);
+}
+
+struct Folded;
+
+impl Kind for Folded {
+    const N_AMPHIPODS: usize = 8;
+    type EncodedGraph = Box<[Option<Amphipod>; 19]>;
+
+    fn parse_graph(s: &str) -> MyGraph {
+        parse_graph::<8>(s)
     }
 
-    let starts: Box<[Amphipod; 8]> = starts
-        .into_boxed_slice()
-        .try_into()
-        .expect("incorrect number of starting amphipods");
+    fn encode_graph(g: &MyGraph) -> Self::EncodedGraph {
+        encode_graph::<19>(g)
+    }
+
+    fn dump_graph(g: &MyGraph) {
+        dump_graph(&*Self::encode_graph(g))
+    }
+}
+
+struct Unfolded;
+
+impl Kind for Unfolded {
+    const N_AMPHIPODS: usize = 16;
+    type EncodedGraph = Box<[Option<Amphipod>; 27]>;
+
+    fn parse_graph(s: &str) -> MyGraph {
+        parse_graph::<16>(s)
+    }
+
+    fn encode_graph(g: &MyGraph) -> Self::EncodedGraph {
+        encode_graph::<27>(g)
+    }
+
+    fn dump_graph(g: &MyGraph) {
+        dump_graph(&*Self::encode_graph(g))
+    }
+}
+
+fn parse_graph<const N: usize>(s: &str) -> MyGraph {
+    let starts = extract_amphipods::<N>(s);
 
     let mut g = MyGraph::new_undirected();
+
+    let mut prev = add_hallway_and_intersections(&mut g);
+
+    for amphipods in starts.array_chunks() {
+        prev = add_room_level(&mut g, amphipods, prev);
+    }
+
+    g
+}
+
+fn extract_amphipods<const N: usize>(s: &str) -> Box<[Amphipod; N]> {
+    use Amphipod::*;
+
+    s.lines()
+        .flat_map(|l| l.trim().chars())
+        .flat_map(|c| match c {
+            'A' => Some(Amber),
+            'B' => Some(Bronze),
+            'C' => Some(Copper),
+            'D' => Some(Desert),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+        .try_into()
+        .expect("incorrect number of starting amphipods")
+}
+
+fn add_hallway_and_intersections(g: &mut MyGraph) -> [NodeIndex; 4] {
+    use Node::*;
 
     let h1 = g.add_node(Hallway(None));
     let h2 = g.add_node(Hallway(None));
@@ -56,16 +122,6 @@ fn parse_graph(s: &str) -> MyGraph {
     let h6 = g.add_node(Hallway(None));
     let h7 = g.add_node(Hallway(None));
 
-    let ra1 = g.add_node(Room(Amber, Some(starts[0])));
-    let rb1 = g.add_node(Room(Bronze, Some(starts[1])));
-    let rc1 = g.add_node(Room(Copper, Some(starts[2])));
-    let rd1 = g.add_node(Room(Desert, Some(starts[3])));
-
-    let ra2 = g.add_node(Room(Amber, Some(starts[4])));
-    let rb2 = g.add_node(Room(Bronze, Some(starts[5])));
-    let rc2 = g.add_node(Room(Copper, Some(starts[6])));
-    let rd2 = g.add_node(Room(Desert, Some(starts[7])));
-
     g.add_edge(h1, h2, ());
     g.add_edge(h2, i1, ());
     g.add_edge(i1, h3, ());
@@ -77,20 +133,33 @@ fn parse_graph(s: &str) -> MyGraph {
     g.add_edge(i4, h6, ());
     g.add_edge(h6, h7, ());
 
-    g.add_edge(i1, ra1, ());
-    g.add_edge(i2, rb1, ());
-    g.add_edge(i3, rc1, ());
-    g.add_edge(i4, rd1, ());
-
-    g.add_edge(ra1, ra2, ());
-    g.add_edge(rb1, rb2, ());
-    g.add_edge(rc1, rc2, ());
-    g.add_edge(rd1, rd2, ());
-
-    g
+    [i1, i2, i3, i4]
 }
 
-fn find_minimum_cost(g: MyGraph) -> Option<State> {
+fn add_room_level(
+    g: &mut MyGraph,
+    amphipods: &[Amphipod; 4],
+    prev: [NodeIndex; 4],
+) -> [NodeIndex; 4] {
+    use {Amphipod::*, Node::*};
+
+    let ra = g.add_node(Room(Amber, Some(amphipods[0])));
+    let rb = g.add_node(Room(Bronze, Some(amphipods[1])));
+    let rc = g.add_node(Room(Copper, Some(amphipods[2])));
+    let rd = g.add_node(Room(Desert, Some(amphipods[3])));
+
+    g.add_edge(prev[0], ra, ());
+    g.add_edge(prev[1], rb, ());
+    g.add_edge(prev[2], rc, ());
+    g.add_edge(prev[3], rd, ());
+
+    [ra, rb, rc, rd]
+}
+
+fn find_minimum_cost<K>(g: MyGraph) -> Option<State>
+where
+    K: Kind,
+{
     let mut graphs = BinaryHeap::from_iter([Reverse(State::new(g))]);
     let mut already_seen = BTreeMap::new();
 
@@ -137,7 +206,7 @@ fn find_minimum_cost(g: MyGraph) -> Option<State> {
                 };
 
                 use std::collections::btree_map::Entry::*;
-                let encoded = next_state.encode();
+                let encoded = next_state.encode::<K>();
                 match already_seen.entry(encoded) {
                     Vacant(e) => {
                         e.insert(cost);
@@ -314,13 +383,13 @@ impl Node {
 }
 
 type MyGraph = UnGraph<Node, ()>;
-type EncodedGraph = Box<[Option<Amphipod>; 19]>;
 
-#[allow(dead_code)]
-fn dump_graph(g: &MyGraph) {
+fn dump_graph(encoded: &[Option<Amphipod>]) {
     use Amphipod::*;
 
-    let e = encode_graph(g);
+    let (hallway, rooms) = encoded.split_at(11);
+    let hallway: &[_; 11] = hallway.try_into().unwrap();
+    let (rooms, _) = rooms.as_chunks::<4>();
 
     let chr = |v| match v {
         Some(Amber) => 'A',
@@ -332,34 +401,28 @@ fn dump_graph(g: &MyGraph) {
 
     eprintln!(
         "{}{}{}{}{}{}{}{}{}{}{}",
-        chr(e[0]),
-        chr(e[1]),
-        chr(e[2]),
-        chr(e[3]),
-        chr(e[4]),
-        chr(e[5]),
-        chr(e[6]),
-        chr(e[7]),
-        chr(e[8]),
-        chr(e[9]),
-        chr(e[10]),
+        chr(hallway[0]),
+        chr(hallway[1]),
+        chr(hallway[2]),
+        chr(hallway[3]),
+        chr(hallway[4]),
+        chr(hallway[5]),
+        chr(hallway[6]),
+        chr(hallway[7]),
+        chr(hallway[8]),
+        chr(hallway[9]),
+        chr(hallway[10]),
     );
 
-    eprintln!(
-        "  {} {} {} {}",
-        chr(e[11]),
-        chr(e[12]),
-        chr(e[13]),
-        chr(e[14]),
-    );
-
-    eprintln!(
-        "  {} {} {} {}",
-        chr(e[15]),
-        chr(e[16]),
-        chr(e[17]),
-        chr(e[18]),
-    );
+    for room_row in rooms {
+        eprintln!(
+            "  {} {} {} {}",
+            chr(room_row[0]),
+            chr(room_row[1]),
+            chr(room_row[2]),
+            chr(room_row[3]),
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -388,12 +451,15 @@ impl State {
         })
     }
 
-    fn encode(&self) -> EncodedGraph {
-        encode_graph(&self.graph)
+    fn encode<K>(&self) -> K::EncodedGraph
+    where
+        K: Kind,
+    {
+        K::encode_graph(&self.graph)
     }
 }
 
-fn encode_graph(g: &MyGraph) -> EncodedGraph {
+fn encode_graph<const N: usize>(g: &MyGraph) -> Box<[Option<Amphipod>; N]> {
     g.node_weights()
         .map(|n| n.amphipod().copied())
         .collect::<Vec<_>>()
@@ -426,10 +492,16 @@ impl Ord for State {
 mod test {
     use super::*;
 
-    const TEST_INPUT: &str = include_str!("../test-input");
+    const TEST_INPUT_0: &str = include_str!("../test-input-0");
+    const TEST_INPUT_1: &str = include_str!("../test-input-1");
 
     #[test]
     fn test_part1() {
-        assert_eq!(12521, minimum_energy_to_organize(TEST_INPUT));
+        assert_eq!(12521, minimum_energy_to_organize::<Folded>(TEST_INPUT_0));
+    }
+
+    #[test]
+    fn test_part2() {
+        assert_eq!(44169, minimum_energy_to_organize::<Unfolded>(TEST_INPUT_1));
     }
 }
